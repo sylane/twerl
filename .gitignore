@@ -1,2 +1,6 @@
 .project
 .settings
+doc/*.html
+doc/*.css
+doc/edoc-info
+doc/erlang.png

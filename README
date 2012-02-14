@@ -1,0 +1,142 @@
+TWERL - Twisted Erlang
+
+TWERL is an intent to build an erlang framework for data processing
+and networking protocols with emphasis on code reusability.
+
+After working for years with the python framework twisted
+(http://twistedmatrix.com/) I felt erlang/OTP was missing
+an easy way to write reusable peace of code that could
+be plugged together to quickly build a client or server protocol
+following OTP principles.
+
+This project is an intent to make writing simple server and client applications
+a breeze and let other people easily reuse the code between applications.
+
+
+Proper installation and setup is not there yet. To test twerl, the library
+erlib is needed and erlang must be informed where to find it.
+
+ 1. Clone erlib repository::
+
+   $ git clone git://github.com/sylane/erlib.git
+
+ 2. Build erlib::
+
+   $ cd erlib
+   $ ./build.sh
+
+ 3. Update ~/.erlang by adding the following lines with the proper path
+    wher erlib has been checked out::
+
+   code:add_pathz("XXX/erlib/ebin").
+
+ 4. Checkout twerl::
+
+   $ cd ..
+   $ git clone git://github.com/sylane/twerl.git
+
+ 5. Build twerl::
+
+   $ cd twerl
+   $ ./build.sh
+
+ 6. Start a twerl development console::
+
+   $ ./console.sh
+
+ 7. Now you can play with pipelines:
+
+   First a simple pipeline consuming from stdin and producing on stdout
+   that will split the input in packets separated by 'X'::
+
+     f().
+     {ok, StdProd} = stage_stdio_producer:new().
+     {ok, Splitter} = stage_regex_splitter:new("X").
+     {ok, StdCons} = stage_stdio_consumer:new().
+     {ok, Pipe} = twerl_pipeline:new([StdProd, Splitter, StdCons]).
+
+   The pipeline can be run until a stage decide to terminate,
+   press return without data to stop the stdio producer::
+
+     Pipe:run().
+     
+   End type some input data, a double carriage return will end the pipeline.
+   For example::
+     
+     foo
+     barXbuz
+     pimXpamXpoum
+
+   Now we build a simple file processing pipeline::
+
+    f().
+    {ok, File} = file:open("/etc/services", [read]).
+    {ok, FileProd} = stage_file_producer:new(File).
+    {ok, Splitter} = stage_regex_splitter:new("(?<=tcp|udp).*$\n?").
+    {ok, Pipe} = twerl_pipeline:new([FileProd, Splitter]).
+     
+   And pull 3 packets one by one::
+
+    {data, Packet1, _, Pipe2} = Pipe:pull(next).
+    {data, Packet2, _, Pipe3} = Pipe2:pull(next).
+    {data, Packet3, _, Pipe4} = Pipe3:pull(next).
+
+   And pull all the remaining packets::
+
+    {data, Packets, _, Pipe5} = Pipe4:run().
+
+   Pipeling works in push mode too. Now a HTTP encoding pipeline
+   that print to stdout, a pcket decoder is needed given than
+   the stdio consumer consume line::
+
+    f().
+    {ok, HTTPEnc} = stage_http_pkt_encoder:new().
+    {ok, LineDec} = stage_packet_decoder:new().
+    {ok, StdCons} = stage_stdio_consumer:new().
+    {ok, Pipe} = twerl_pipeline:new([HTTPEnc, LineDec, StdCons]).
+
+   Now we can push http_pkt packets (see doc/idioms/http_pkt.txt)::
+
+    Pipe:push({request, {1, 1}, 'GET', url:new()}).
+
+   Or even push a list of packets::
+
+    Pipe:consume_packets([{response, {1, 1}, ok},
+                          {header, 'Content-Type', "text/plain"},
+                          {header, 'Content-Length', "8"},
+                          eoh,
+                          {body, "Some"},
+                          {body, "Text"},
+                          eob]).
+
+ 8. Now we can start some services.
+ 
+    First a simple proof-of-concept HTTP server::
+      
+      f().
+      DumperDef = proto_http_req_dumper:prepare().
+      ProtoDef = proto_http_server:prepare(DumperDef).
+      FactDef = gen_factory:prepare(ProtoDef).
+      AccDef = acceptor_tcp:prepare(7878).
+      ServDef = gen_service:prepare_server(AccDef, FactDef).
+      twerl:create_service(http_server, ServDef).
+
+    Then we can issue some requests::
+    
+      curl http://localhost:7878
+      
+    Then we can  try a proof-of-concept HTTP client::
+
+      f().
+      DumperDef = proto_http_req_dumper:prepare_client().
+      ProtoDef = proto_http_client:prepare(DumperDef).
+      FactDef = gen_factory:prepare(ProtoDef).
+      ConnDef = connector_tcp:prepare("www.google.com", 80).
+      ServDef = gen_service:prepare_client(ConnDef, FactDef).
+      twerl:create_service(http_client, ServDef).
+
+    But because the client do not yet cleanup after itself we have
+    to stop the service before being able to start another one with the
+    same name::
+    
+      twerl:stop_service(http_client).

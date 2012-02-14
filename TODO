@@ -1,0 +1,5 @@
+Fix inconsistency between stage formats:
+   {binary, block} / {binary, http}
+
+Support {eos, _} as a callback return value in gen_protocol to allow
+returning directly the result of a parent_push call.

@@ -1,0 +1,10 @@
+next
+{position, {bytes, O}}              when is_integer(O)
+{position, {bytes, {bof, O}}}       when is_integer(O)
+{position, {bytes, {cur, O}}}       when is_integer(O)
+{position, {bytes, {eof, O}}}       when is_integer(O)
+{size, {bytes, S}}                  when is_integer(S)
+{segment, {bytes, O, S}}            when is_integer(O), is_integer(S)
+{segment, {bytes, {bof, O}, S}}     when is_integer(O), is_integer(S)
+{segment, {bytes, {cur, O}, S}}     when is_integer(O), is_integer(S)
+{segment, {bytes, {eof, O}, S}}     when is_integer(O), is_integer(S)
