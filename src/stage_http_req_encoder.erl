@@ -135,28 +135,28 @@ setup(_, _, State) ->
     {ok, State}.
 
 
-process(Data, Pipe, #?St{in = In, out = [O |Os]} = State) ->
+process(Data, Super, #?St{in = In, out = [O |Os]} = State) ->
     NewState = State#?St{in = [Data |In], out = Os},
-    twerl_stage:produce(O, NewState, Pipe);    
-process(Data, Pipe, #?St{in = In, out = []} = State) ->
+    ?super:produce(Super, NewState, O);    
+process(Data, Super, #?St{in = In, out = []} = State) ->
     case encode_http_req_(lists:reverse([Data |In]), []) of
         [O |Os] ->
             NewState = State#?St{in = [], out = Os},
-            twerl_stage:produce(O, NewState, Pipe);
+            ?super:produce(Super, NewState, O);
         [] ->
             NewState = State#?St{in = [], out = []},
-            twerl_stage:need_more(next, NewState, Pipe)
+            ?super:need_more(Super, NewState, next)
     end.
 
 
-continue(next, Pipe, #?St{out = [O |Os]} = State) ->
+continue(next, Super, #?St{out = [O |Os]} = State) ->
     NewState = State#?St{out = Os},
-    twerl_stage:produce(O, NewState, Pipe);    
-continue(next, Pipe, State) ->
-    twerl_stage:need_more(next, State, Pipe);
-continue(Query, Pipe, State) ->
+    ?super:produce(Super, NewState, O);    
+continue(next, Super, State) ->
+    ?super:need_more(Super, State, next);
+continue(Query, Super, State) ->
     Reason = {query_not_supported, Query, ?MODULE},
-    twerl_stage:failed(Reason, State, Pipe).
+    ?super:failed(Super, State, Reason).
 
 
 %% ====================================================================

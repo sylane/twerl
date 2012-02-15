@@ -47,8 +47,6 @@
 
 -include_lib("erlib/include/erlog.hrl").
 
--include("twerl_pipeline.hrl").
-
 
 %% --------------------------------------------------------------------
 %% Macros

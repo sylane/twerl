@@ -198,27 +198,27 @@ setup(InFmt, OutFmt, State) ->
     setup_output_(State1, OutFmt).
 
 
-process(Data, Pipe, #?St{format = passthrough} = State) ->
+process(Data, Super, #?St{format = passthrough} = State) ->
     Converted = convert_output_(State, convert_input_(State, Data)),
-    twerl_stage:produce(Converted, State, Pipe);
-process(Data, Pipe, #?St{data = Rem, format = {block, S}} = State) ->
+    ?super:produce(Super, State, Converted);
+process(Data, Super, #?St{data = Rem, format = {block, S}} = State) ->
     Converted = convert_input_(State, Data),
-    parse_block_(State, Pipe, S, <<Rem/binary, Converted/binary>>);
-process(Data, Pipe, #?St{data = Rem} = State) ->
+    parse_block_(Super, State, S, <<Rem/binary, Converted/binary>>);
+process(Data, Super, #?St{data = Rem} = State) ->
     Converted = convert_input_(State, Data),
-    parse_packet_(State, Pipe, <<Rem/binary, Converted/binary>>).
+    parse_packet_(Super, State, <<Rem/binary, Converted/binary>>).
 
 
-continue(Query, Pipe, #?St{format = passthrough} = State) ->
-    twerl_stage:need_more(Query, State, Pipe);
-continue(next, Pipe, #?St{data = Buff, format = {block, S}} = State) ->
-    parse_block_(State, Pipe, S, Buff);
-continue(next, Pipe, State) ->
+continue(Query, Super, #?St{format = passthrough} = State) ->
+    ?super:need_more(Super, State, Query);
+continue(next, Super, #?St{data = Buff, format = {block, S}} = State) ->
+    parse_block_(Super, State, S, Buff);
+continue(next, Super, State) ->
     #?St{data = Rem} = State,
-    parse_packet_(State, Pipe, Rem);
-continue(Query, Pipe, State) ->
+    parse_packet_(Super, State, Rem);
+continue(Query, Super, State) ->
     % Flush remaining data and forwar the query upstream
-    twerl_stage:need_more(Query, State#?St{data = <<>>}, Pipe).
+    ?super:need_more(Super, State#?St{data = <<>>}, Query).
 
 
 %% ====================================================================
@@ -256,23 +256,23 @@ convert_input_(_, Data) -> Data.
 convert_output_(#?St{output = list}, Data) -> binary_to_list(Data);
 convert_output_(_, Data) -> Data.
 
-parse_block_(State, Pipe, Size, Buff) when byte_size(Buff) >= Size ->
+parse_block_(Super, State, Size, Buff) when byte_size(Buff) >= Size ->
     <<Packet:Size/binary, NewBuff/binary>> = Buff,
     Packet1 = convert_output_(State, Packet),
-    twerl_stage:produce(Packet1, State#?St{data = NewBuff}, Pipe);
-parse_block_(State, Pipe, _, Buff) ->
-    twerl_stage:need_more(next, State#?St{data = Buff}, Pipe).
+    ?super:produce(Super, State#?St{data = NewBuff}, Packet1);
+parse_block_(Super, State, _, Buff) ->
+    ?super:need_more(Super, State#?St{data = Buff}, next).
 
-parse_packet_(#?St{format = Type} = State, Pipe, Data) ->
+parse_packet_(Super, #?St{format = Type} = State, Data) ->
     case erlang:decode_packet(Type, Data, []) of
         {error, Reason} ->
-            twerl_stage:failed(Reason, State, Pipe);
+            ?super:failed(Super, State, Reason);
         {more, _Length} ->
-            twerl_stage:need_more(next, State#?St{data = Data}, Pipe);
+            ?super:need_more(Super, State#?St{data = Data}, next);
         {ok, Packet, Rest} ->
             {ok, NewState} = update_type_(State#?St{data = Rest}),
             Packet1 = convert_output_(State, Packet),
-            twerl_stage:produce(Packet1, NewState, Pipe)
+            ?super:produce(Super, NewState, Packet1)
     end.
 
 update_type_(#?St{format = http}) -> {ok, httph};

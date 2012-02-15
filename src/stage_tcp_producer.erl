@@ -202,27 +202,27 @@ setup(message, {Type, {block, MaxSize}} = F, State) ->
     setup_(State#?St{block = MaxSize}, F, Type, raw).
 
 
-process({http, Sock, Data}, Pipe, #?St{sock = Sock} = State) ->
-    twerl_stage:produce(Data, State, Pipe);
-process({tcp, Sock, Data}, Pipe, #?St{sock = Sock} = State) ->
-    twerl_stage:produce(Data, State, Pipe);
-process({tcp_closed, Sock}, Pipe, #?St{sock = Sock} = State) ->
+process({http, Sock, Data}, Super, #?St{sock = Sock} = State) ->
+    ?super:produce(Super, State, Data);
+process({tcp, Sock, Data}, Super, #?St{sock = Sock} = State) ->
+    ?super:produce(Super, State, Data);
+process({tcp_closed, Sock}, Super, #?St{sock = Sock} = State) ->
     erlog:debug("Connection to ~s closed.", [format:peer(State#?St.peer)]),
-    twerl_stage:finished(State, Pipe);
-process(Msg, Pipe, State) ->
-    twerl_stage:ignore(Msg, State, Pipe).
+    ?super:finished(Super, State);
+process(Msg, Super, State) ->
+    ?super:ignore(Super, State, Msg).
 
 
-continue(next, Pipe, State) ->
+continue(next, Super, State) ->
     #?St{sock = Sock} = State,
     ok = inet:setopts(Sock, [{active, once}]),
-    twerl_stage:need_more(next, State, Pipe);
-continue({size, {bytes, Max}}, Pipe,
+    ?super:need_more(Super, State, next);
+continue({size, {bytes, Max}}, Super,
          #?St{output = {_, {block, _}}} = State) ->
     #?St{sock = Sock} = State,
     case gen_tcp:recv(Sock, Max) of
-        {ok, Packet} -> twerl_stage:produce(Packet, State, Pipe);
-        {error, Reason} -> twerl_stage:failed(Reason, State, Pipe)
+        {ok, Packet} -> ?super:produce(Super, State, Packet);
+        {error, Reason} -> ?super:failed(Super, State, Reason)
     end.
 
 

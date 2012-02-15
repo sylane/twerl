@@ -177,25 +177,25 @@ setup(_InFmt, {T, {block, MaxSize}}, State) ->
     {ok, State#?St{block = MaxSize}}.
 
 
-process(next, Pipe, #?St{block = line} = State) ->
+process(next, Super, #?St{block = line} = State) ->
     #?St{file = File} = State,
     case io:get_line(File, "") of
-        eof -> twerl_stage:finished(State, Pipe);
-        {error, Reason} -> twerl_stage:failed(Reason, State, Pipe);
-        Data -> twerl_stage:produce(Data, State, Pipe)
+        eof -> ?super:finished(Super, State);
+        {error, Reason} -> ?super:failed(Super, State, Reason);
+        Data -> ?super:produce(Super, State, Data)
     end;
-process(Query, Pipe, State) ->
+process(Query, Super, State) ->
     #?St{file = File} = State,
     case parse_query_(State, Query) of
         {ok, {cur, 0}, Size} ->
-            handle_read_result_(State, Pipe, file:read(File, Size));
+            handle_read_result_(Super, State, file:read(File, Size));
         {ok, Offset, Size} ->
-            handle_read_result_(State, Pipe, file:pread(File, Offset, Size))
+            handle_read_result_(Super, State, file:pread(File, Offset, Size))
     end.
 
 
-continue(Query, Pipe, State) ->
-    process(Query, Pipe, State).
+continue(Query, Super, State) ->
+    process(Query, Super, State).
 
 
 %% ====================================================================
@@ -234,13 +234,13 @@ parse_query_(_St, {segment, {bytes, Offset, Size}})
 parse_query_(_St, _Query) ->
     {error, query_not_supported}.
 
-handle_read_result_(State, Pipe, eof) ->
-    twerl_stage:finished(State, Pipe);
-handle_read_result_(State, Pipe, ebadf) ->
-    twerl_stage:failed(ebadf, State, Pipe);
-handle_read_result_(State, Pipe, {error, Reason}) ->
-    twerl_stage:failed(Reason, State, Pipe);
-handle_read_result_(State, Pipe, {ok, Data}) ->
-    twerl_stage:produce(Data, State, Pipe);
-handle_read_result_(State, Pipe, {no_translation, _, _} = Reason) ->
-    twerl_stage:failed(Reason, State, Pipe).
+handle_read_result_(Super, State, eof) ->
+    ?super:finished(Super, State);
+handle_read_result_(Super, State, ebadf) ->
+    ?super:failed(Super, State, ebadf);
+handle_read_result_(Super, State, {error, Reason}) ->
+    ?super:failed(Super, State, Reason);
+handle_read_result_(Super, State, {ok, Data}) ->
+    ?super:produce(Super, State, Data);
+handle_read_result_(Super, State, {no_translation, _, _} = Reason) ->
+    ?super:failed(Super, State, Reason).

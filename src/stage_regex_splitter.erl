@@ -153,20 +153,20 @@ setup(_InFmt, {FmtType, {field, Sep}}, State) ->
     {ok, State#?St{output = FmtType, regex = Regex}}.
 
 
-process(Data, Pipe, State) ->
+process(Data, Super, State) ->
     #?St{regex = Regex, output = RetType, data = Last} = State,
     Parts = re:split([Last, Data], Regex,
                      [{parts, 2}, {return, RetType}, group]),
     case Parts of
         [[Field |_], [Rem]] ->
-			twerl_stage:produce(Field, State#?St{data = Rem}, Pipe);
+			?super:produce(Super, State#?St{data = Rem}, Field);
         [[Rem]] ->
-			twerl_stage:need_more(next, State#?St{data = Rem}, Pipe)
+			?super:need_more(Super, State#?St{data = Rem}, next)
     end.
 
 
-continue(next, Pipe, State) ->
-    process(<<>>, Pipe, State);
-continue(Query, Pipe, State) ->
+continue(next, Super, State) ->
+    process(<<>>, Super, State);
+continue(Query, Super, State) ->
     % For any other queries, we just flush and pass the query upstream
-    twerl_stage:need_more(Query, State#?St{data = <<>>}, Pipe).
+    ?super:need_more(Super, State#?St{data = <<>>}, Query).

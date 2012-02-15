@@ -138,16 +138,16 @@ setup(_InFmt, {http_pkt, binary}, State) ->
     setup_(State#?St{type = binary}).
 
 
-process(Data, Pipe, State) ->
+process(Data, Super, State) ->
     #?St{data = Rem} = State,
-    parse_http_(State, Pipe, <<Rem/binary, Data/binary>>).
+    parse_http_(Super, State, <<Rem/binary, Data/binary>>).
 
 
-continue(next, Pipe, #?St{data = Rem} = State) ->
-    parse_http_(State, Pipe, Rem);
-continue(Query, Pipe, State) ->
+continue(next, Super, #?St{data = Rem} = State) ->
+    parse_http_(Super, State, Rem);
+continue(Query, Super, State) ->
     Reason = {query_not_supported, Query, ?MODULE},
-    twerl_stage:failed(Reason, State, Pipe).
+    ?super:failed(Super, State, Reason).
 
 
 %% ====================================================================
@@ -158,81 +158,81 @@ setup_(State) ->
     {ok, Regex} = re:compile(" *, *"),
     {ok, State#?St{header_regex = Regex}}.
 
-parse_http_(#?St{state = error} = State, Pipe, _) ->
-    twerl_stage:finished(State, Pipe);
-parse_http_(#?St{state = fixed_body} = State, Pipe, Data) ->
-    parse_fixed_body_(State, Pipe, Data);
-parse_http_(State, Pipe, <<>>) ->
-    twerl_stage:need_more(next, State, Pipe);
-parse_http_(State, Pipe, Data) ->
+parse_http_(Super, #?St{state = error} = State, _) ->
+    ?super:finished(Super, State);
+parse_http_(Super, #?St{state = fixed_body} = State, Data) ->
+    parse_fixed_body_(Super, State, Data);
+parse_http_(State, Super, <<>>) ->
+    ?super:need_more(Super, State, next);
+parse_http_(Super, State, Data) ->
     case erlang:decode_packet(packet_type_(State), Data, []) of
         {error, Reason} ->
-            twerl_stage:failed(Reason, State, Pipe);
+            ?super:failed(Super, State, Reason);
         {more, _Length} ->
-            twerl_stage:need_more(next, State#?St{data = Data}, Pipe);
+            ?super:need_more(Super, State#?St{data = Data}, next);
         {ok, Packet, Rest} ->
-            produce_packet_(State, Pipe, Packet, Rest)
+            produce_packet_(Super, State, Packet, Rest)
     end.
 
-parse_fixed_body_(#?St{rem_len = 0} = State, Pipe, Data) ->
+parse_fixed_body_(Super, #?St{rem_len = 0} = State, Data) ->
     NewState = State#?St{state = request, data = Data,
                          body_len = undefined, rem_len = undefined},
-    twerl_stage:produce(eob, NewState, Pipe);
-parse_fixed_body_(State, Pipe, <<>>) ->
-    twerl_stage:need_more(next, State, Pipe);
-parse_fixed_body_(#?St{rem_len = RemLen} = State, Pipe, Data)
+    ?super:produce(Super, NewState, eob);
+parse_fixed_body_(Super, State, <<>>) ->
+    ?super:need_more(Super, State, next);
+parse_fixed_body_(Super, #?St{rem_len = RemLen} = State, Data)
   when byte_size(Data) < RemLen ->
     NewState = State#?St{data = <<>>, rem_len = RemLen - byte_size(Data)},
-    produce_body_(NewState, Pipe, Data);
-parse_fixed_body_(#?St{rem_len = RemLen} = State, Pipe, Data) ->
+    produce_body_(Super, NewState, Data);
+parse_fixed_body_(Super, #?St{rem_len = RemLen} = State, Data) ->
     <<Body:RemLen/binary, RemData/binary>> = Data,
     NewState = State#?St{data = RemData, rem_len = 0},
-    produce_body_(NewState, Pipe, Body).
+    produce_body_(Super, NewState, Body).
 
-produce_body_(#?St{type = list} = State, Pipe, Data) ->
-    twerl_stage:produce({body, erlang:binary_to_list(Data)}, State, Pipe);
-produce_body_(State, Pipe, Data) ->
-    twerl_stage:produce({body, Data}, State, Pipe).
+produce_body_(Super, #?St{type = list} = State, Data) ->
+    ?super:produce(Super, State, {body, erlang:binary_to_list(Data)});
+produce_body_(Super, State, Data) ->
+    ?super:produce(Super, State, {body, Data}).
 
-produce_packet_(#?St{state = request} = State, Pipe,
+produce_packet_(Super, #?St{state = request} = State,
                 {http_request, Method, Path, Ver}, Rest) ->
     NewState = State#?St{state = headers, data = Rest},
     Packet = {request, Ver, Method, parse_path_(State, Path)},
-    twerl_stage:produce(Packet, NewState, Pipe);
-produce_packet_(#?St{state = request} = State, Pipe,
+    ?super:produce(Super, NewState, Packet);
+produce_packet_(Super, #?St{state = request} = State,
                 {http_response, Ver, Code, Msg}, Rest) ->
     NewState = State#?St{state = headers, data = Rest},
     Packet = {response, Ver, Code, Msg},
-    twerl_stage:produce(Packet, NewState, Pipe);
-produce_packet_(#?St{state = headers} = State, Pipe,
+    ?super:produce(Super, NewState, Packet);
+produce_packet_(Super, #?St{state = headers} = State,
                 {http_header, _, 'Content-Length', _, Value}, Rest) ->
     try header_to_integer_(State, Value) of
         BodyLen ->
             NewState = State#?St{data = Rest, body_len = BodyLen},
             Packet = {header, 'Content-Length', Value},
-            twerl_stage:produce(Packet, NewState, Pipe)
+            ?super:produce(Super, NewState, Packet)
     catch
         error:badarg ->
-            fatal_error_(State, Pipe, bad_request,
+            fatal_error_(Super, State, bad_request,
                          {bad_header, 'Content-Length', Value})
     end;
-produce_packet_(#?St{state = headers} = State, Pipe,
+produce_packet_(Super, #?St{state = headers} = State,
                 {http_header, _, Header, _, Value}, Rest) ->
     Value1 = header_value_(State, httplib:combined_header(Header), Value),
     Packet = {header, Header, Value1},
-    twerl_stage:produce(Packet, State#?St{data = Rest}, Pipe);
-produce_packet_(#?St{state = headers, body_len = undefined} = State, Pipe,
+    ?super:produce(Super, State#?St{data = Rest}, Packet);
+produce_packet_(Super, #?St{state = headers, body_len = undefined} = State,
                 http_eoh, Rest) ->
     NewState = State#?St{state = fixed_body, data = Rest,
                          body_len = 0, rem_len = 0},
-    twerl_stage:produce(eoh, NewState, Pipe);
-produce_packet_(#?St{state = headers, body_len = BodyLen} = State, Pipe,
+    ?super:produce(Super, NewState, eoh);
+produce_packet_(Super, #?St{state = headers, body_len = BodyLen} = State,
                 http_eoh, Rest) ->
     NewState = State#?St{state = fixed_body, data = Rest, rem_len = BodyLen},
-    twerl_stage:produce(eoh, NewState, Pipe);
-produce_packet_(State, Pipe, {http_error, Data}, Rest) ->
+    ?super:produce(Super, NewState, eoh);
+produce_packet_(Super, State, {http_error, Data}, Rest) ->
     NewState = State#?St{data = Rest},
-    error_(NewState, Pipe, unexpected, Data).
+    error_(Super, NewState, unexpected, Data).
 
 header_value_(_State, false, Value) -> Value;
 header_value_(State, true, Value) ->
@@ -258,11 +258,11 @@ packet_type_(#?St{type = binary, state = request}) -> http_bin;
 packet_type_(#?St{type = list, state = headers}) -> httph;
 packet_type_(#?St{type = binary, state = headers}) -> httph_bin.
 
-error_(State, Pipe, Kind, Info) ->
+error_(Super, State, Kind, Info) ->
     Packet = {error, {Kind, Info}},
-    twerl_stage:produce(Packet, State, Pipe).
+    ?super:produce(Super, State, Packet).
 
-fatal_error_(State, Pipe, Kind, Info) ->
+fatal_error_(Super, State, Kind, Info) ->
     NewState = State#?St{state = error, data = <<>>},
     Packet = {error, {Kind, Info}},
-    twerl_stage:produce(Packet, NewState, Pipe).
+    ?super:produce(Super, NewState, Packet).

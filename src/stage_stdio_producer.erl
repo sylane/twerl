@@ -149,16 +149,16 @@ setup(_InFmt, {T, _}, State) ->
     {ok, State#?St{output = T, eos = fix_type_(T, State#?St.eos)}}.
 
 
-process(next, Pipe, State) ->
-    produce_(State, Pipe);
-process(Query, Pipe, State) ->
-    not_supported_(State, Pipe, Query).
+process(next, Super, State) ->
+    produce_(Super, State);
+process(Query, Super, State) ->
+    not_supported_(Super, State, Query).
 
 
-continue(next, Pipe, State) ->
-    produce_(State, Pipe);
-continue(Query, Pipe, State) ->
-    not_supported_(State, Pipe, Query).
+continue(next, Super, State) ->
+    produce_(Super, State);
+continue(Query, Super, State) ->
+    not_supported_(Super, State, Query).
 
 
 %% ====================================================================
@@ -170,18 +170,20 @@ fix_type_(binary, V) when is_list(V) -> list_to_binary(V);
 fix_type_(list, V) when is_binary(V) -> binary_to_list(V);
 fix_type_(list, V) when is_list(V) -> V.
 
-produce_(State, Pipe) ->
+produce_(Super, State) ->
     #?St{output = OutFmt, eos = EOS} = State,
     % We do it every time because we don't own standard IO, config could change
     ok = io:setopts([OutFmt]),
     case io:get_line("") of
-        eof -> twerl_stage:finished(State, Pipe);
-        {error, Reason} -> twerl_stage:failed(Reason, State, Pipe);
-        EOS -> twerl_stage:finished(State, Pipe);
-        Data -> twerl_stage:produce(Data, State, Pipe)
+        eof -> ?super:finished(Super, State);
+        {error, Reason} -> ?super:failed(Super, State, Reason);
+        EOS -> ?super:finished(Super, State);
+        Data -> ?super:produce(Super, State, Data)
     end.
 
+
 -spec not_supported_(any(), any(), any()) -> no_return().
-not_supported_(State, Pipe, Query) ->
+
+not_supported_(Super, State, Query) ->
     Reason = {query_not_supported, Query, ?MODULE},
-    twerl_stage:failed(Reason, State, Pipe).
+    ?super:failed(Super, State, Reason).

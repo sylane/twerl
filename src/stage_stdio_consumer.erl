@@ -144,11 +144,11 @@ setup({_, line}, none, State) ->
     {ok, State}.
 
 
-process(Data, Pipe, State) ->
+process(Data, Super, State) ->
     #?St{prefix = Prefix, postfix = Postfix, device = Dev} = State,
     ok = file:write(Dev, [Prefix, Data, Postfix]),
-    twerl_stage:consumed(State, Pipe).
+    ?super:consumed(Super, State).
 
 
-continue(Query, Pipe, State) ->
-    twerl_stage:need_more(Query, State, Pipe).
+continue(Query, Super, State) ->
+    ?super:need_more(Super, State, Query).

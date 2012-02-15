@@ -134,16 +134,16 @@ setup({Fmt, _}, none, State) ->
     setup_(State, Fmt).
 
 
-process(Data, Pipe, #?St{input = list} = State) ->
-    send_(State, Pipe, Data);
-process(Data, Pipe, #?St{input = binary} = State) ->
-    send_(State, Pipe, Data);
-process(Data, Pipe, #?St{input = iodata} = State) ->
-    send_(State, Pipe, erlang:iolist_to_binary(Data)).
+process(Data, Super, #?St{input = list} = State) ->
+    send_(Super, State, Data);
+process(Data, Super, #?St{input = binary} = State) ->
+    send_(Super, State, Data);
+process(Data, Super, #?St{input = iodata} = State) ->
+    send_(Super, State, erlang:iolist_to_binary(Data)).
 
 
-continue(Query, Pipe, State) ->
-    twerl_stage:need_more(Query, State, Pipe).
+continue(Query, Super, State) ->
+    ?super:need_more(Super, State, Query).
 
 
 %% ====================================================================
@@ -155,9 +155,9 @@ setup_(State, Fmt) ->
               [format:peer(State#?St.peer), Fmt]),
     {ok, State#?St{input = Fmt}}.
 
-send_(State, Pipe, Data) ->
+send_(Super, State, Data) ->
     #?St{sock = Sock} = State,
     case gen_tcp:send(Sock, Data) of
-        ok -> twerl_stage:consumed(State, Pipe);
-        {error, Reason} -> twerl_stage:failed(Reason, State, Pipe)
+        ok -> ?super:consumed(Super, State);
+        {error, Reason} -> ?super:failed(Super, State, Reason)
     end.

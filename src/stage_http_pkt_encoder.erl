@@ -129,71 +129,71 @@ setup(_InFmt, _OutFmt, State) ->
     {ok, State}.
 
 
-process(Data, Pipe, State) ->
-    encode_http_(State, Pipe, Data).
+process(Data, Super, State) ->
+    encode_http_(Super, State, Data).
 
 
-continue(next, Pipe, State) ->
-    twerl_stage:need_more(next, State, Pipe);
-continue(Query, Pipe, State) ->
+continue(next, Super, State) ->
+    ?super:need_more(Super, State, next);
+continue(Query, Super, State) ->
     Reason = {query_not_supported, Query, ?MODULE},
-    twerl_stage:failed(Reason, State, Pipe).
+    ?super:failed(Super, State, Reason).
 
 
 %% ====================================================================
 %% Internal Functions
 %% ====================================================================
 
-encode_http_(State, Pipe, eoh) ->
-    twerl_stage:produce(<<"\r\n">>, State, Pipe);
-encode_http_(State, Pipe, eob) ->
-    twerl_stage:need_more(next, State, Pipe);
-encode_http_(State, Pipe, {request, Ver, Method, Url}) ->
-    produce_http_request_(State, Pipe, Ver, Method, Url);
-encode_http_(State, Pipe, {response, Ver, Status}) ->
+encode_http_(Super, State, eoh) ->
+    ?super:produce(Super, State, <<"\r\n">>);
+encode_http_(Super, State, eob) ->
+    ?super:need_more(Super, State, next);
+encode_http_(Super, State, {request, Ver, Method, Url}) ->
+    produce_http_request_(Super, State, Ver, Method, Url);
+encode_http_(Super, State, {response, Ver, Status}) ->
     Code = httplib:response_code(Status),
     Message = httplib:response_message(Status),
-    produce_http_response_(State, Pipe, Ver, Code, Message);
-encode_http_(State, Pipe, {response, Ver, Status, undefined}) ->
+    produce_http_response_(Super, State, Ver, Code, Message);
+encode_http_(Super, State, {response, Ver, Status, undefined}) ->
     Code = httplib:response_code(Status),
     Message = httplib:response_message(Status),
-    produce_http_response_(State, Pipe, Ver, Code, Message);
-encode_http_(State, Pipe, {response, Ver, Status, Message}) ->
+    produce_http_response_(Super, State, Ver, Code, Message);
+encode_http_(Super, State, {response, Ver, Status, Message}) ->
     Code = httplib:response_code(Status),
-    produce_http_response_(State, Pipe, Ver, Code, Message);
-encode_http_(State, Pipe, {header, Name, Value}) ->
-    produce_http_header_(State, Pipe, Name, Value);
-encode_http_(State, Pipe, {body, Data}) ->
-    produce_http_body_(State, Pipe, Data);
-encode_http_(State, Pipe, {error, {unexpected, _}}) ->
-    twerl_stage:need_more(next, State, Pipe);
-encode_http_(State, Pipe, {error, {bad_request, _}}) ->
-    twerl_stage:finished(State, Pipe).
+    produce_http_response_(Super, State, Ver, Code, Message);
+encode_http_(Super, State, {header, Name, Value}) ->
+    produce_http_header_(Super, State, Name, Value);
+encode_http_(Super, State, {body, Data}) ->
+    produce_http_body_(Super, State, Data);
+encode_http_(Super, State, {error, {unexpected, _}}) ->
+    ?super:need_more(Super, State, next);
+encode_http_(Super, State, {error, {bad_request, _}}) ->
+    ?super:finished(Super, State).
 
-produce_http_response_(State, Pipe, Ver, Code, Message) ->
+produce_http_response_(Super, State, Ver, Code, Message) ->
     Data = [<<"HTTP/">>, format:version(Ver), <<$ >>,
             erlang:integer_to_list(Code), <<$ >>,
             Message, <<"\r\n">>],
-    twerl_stage:produce(Data, State, Pipe).
+    ?super:produce(Super, State, Data).
 
-produce_http_request_(State, Pipe, Ver, Method, Url) ->
+produce_http_request_(Super, State, Ver, Method, Url) ->
     Data = [erlang:atom_to_list(Method), <<$ >>,
             url:format_location(Url), <<$ >>,
             <<"HTTP/">>, format:version(Ver), <<"\r\n">>],
-    twerl_stage:produce(Data, State, Pipe).
+    ?super:produce(Super, State, Data).
 
-produce_http_header_(State, Pipe, Name, Value) ->
+produce_http_header_(Super, State, Name, Value) ->
     IsCombined = httplib:combined_header(Name),
-    produce_http_header_(State, Pipe, IsCombined, Name, Value).
+    produce_http_header_(Super, State, IsCombined, Name, Value).
 
-produce_http_header_(State, Pipe, false, Name, Value) ->
+produce_http_header_(Super, State, false, Name, Value) ->
     Data = [header_name_(Name), <<": ">>, Value, <<"\r\n">>],
-    twerl_stage:produce(Data, State, Pipe);
-produce_http_header_(State, Pipe, true, _Name, []) ->
-    twerl_stage:consumed(State, Pipe);
-produce_http_header_(State, Pipe, true, Name, Values) ->
+    ?super:produce(Super, State, Data);
+produce_http_header_(Super, State, true, _Name, []) ->
+    ?super:consumed(Super, State);
+produce_http_header_(Super, State, true, Name, Values) ->
     Data = [header_name_(Name), <<": ">>, join_values(Values), <<"\r\n">>],
-    twerl_stage:produce(Data, State, Pipe).
+    ?super:produce(Super, State, Data).
 
 header_name_(Name) when is_atom(Name) -> erlang:atom_to_list(Name);
 header_name_(Name) -> Name.
@@ -203,5 +203,5 @@ join_values([V |Vs]) -> join_values(Vs, [V]).
 join_values([], Acc) -> lists:reverse(Acc);
 join_values([V |Vs], Acc) -> join_values(Vs, [V, <<", ">> |Acc]).
 
-produce_http_body_(State, Pipe, Data) ->
-    twerl_stage:produce(Data, State, Pipe).
+produce_http_body_(Super, State, Data) ->
+    ?super:produce(Super, State, Data).

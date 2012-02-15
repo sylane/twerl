@@ -35,7 +35,7 @@
 %% POSSIBILITY OF SUCH DAMAGE.
 %% ===========================================================================
 
--module(twerl_stage).
+-module(super_pipeline).
 
 -author('Sebastien Merle <s.merle@gmail.com>').
 
@@ -70,6 +70,13 @@
          failed/3]).
 
 
+%% --------------------------------------------------------------------
+%% Types
+%% --------------------------------------------------------------------
+
+-type super() :: #?Pl{}.
+
+
 %% ====================================================================
 %% Stage callbacks Functions, only to be called from inside a stage
 %% ====================================================================
@@ -77,33 +84,43 @@
 %% --------------------------------------------------------------------
 %% @doc Makes the stage produce some data.
 
-produce(Data, Stage, #?Pl{target = Targ, nexts = [Targ |_]} = Pipe) ->
-	% The target of the data is the next stage
+-spec produce(Super::super(), Stage::twerl_stage(),
+              Data::twerl_stage_data()) ->
+          {data, twerl_stage_data(), twerl_stage_format(), super()}
+        | {consumed, super()}
+        | {more, twerl_stage_query(), twerl_stage_format(), super()}
+        | {eos, super()}.
+
+produce(#?Pl{target = Targ, nexts = [Targ |_]} = Super, Stage, Data) ->
+    % The target of the data is the next stage
     #?Pl{prev_fmts = PFmts, next_fmts = [Fmt |NFmts],
-         prevs = Prevs, nexts = [Next |Nexts]} = Pipe,
-    NewPipe = Pipe#?Pl{target = undefined,
-                       prev_fmts = [Fmt |PFmts], next_fmts = NFmts,
-                       prevs = [Stage |Prevs], curr = Next, nexts = Nexts},
-    {data, Data, Fmt, NewPipe};
-produce(Data, Stage, #?Pl{nexts = []} = Pipe) ->
+         prevs = Prevs, nexts = [Next |Nexts]} = Super,
+    NewSuper = Super#?Pl{target = undefined,
+                         prev_fmts = [Fmt |PFmts], next_fmts = NFmts,
+                         prevs = [Stage |Prevs], curr = Next, nexts = Nexts},
+    {data, Data, Fmt, NewSuper};
+produce(#?Pl{nexts = []} = Super, Stage, Data) ->
 	% No more downstream stage to give the data, just return it
-    #?Pl{next_fmts = [Fmt]} = Pipe,
-    {data, Data, Fmt, Pipe#?Pl{curr = Stage}};
-produce(Data, Stage, Pipe) ->
+    #?Pl{next_fmts = [Fmt]} = Super,
+    {data, Data, Fmt, Super#?Pl{curr = Stage}};
+produce(Super, Stage, Data) ->
 	% Pass data to the next downstream stage
     #?Pl{prev_fmts = PFmts, next_fmts = [Fmt  |NFmts],
-         prevs = Prevs, nexts = [Next |Nexts]} = Pipe,
-    NewPipe = Pipe#?Pl{prev_fmts = [Fmt |PFmts], next_fmts = NFmts,
-                       prevs = [Stage |Prevs], curr = Next, nexts = Nexts},
-    call_process_(NewPipe, Data).
+         prevs = Prevs, nexts = [Next |Nexts]} = Super,
+    NewSuper = Super#?Pl{prev_fmts = [Fmt |PFmts], next_fmts = NFmts,
+                         prevs = [Stage |Prevs], curr = Next, nexts = Nexts},
+    call_process_(NewSuper, Data).
 
 
 %% --------------------------------------------------------------------
 %% @doc Informs that some data have been consumed. 
 
-consumed(Stage, #?Pl{nexts = []} = Pipe) ->
+-spec consumed(Super::super(), Stage::twerl_stage()) ->
+          {consumed, super()}.
+
+consumed(#?Pl{nexts = []} = Super, Stage) ->
     % Data consumed, just return the new pipeleine
-    {consumed, Pipe#?Pl{curr = Stage}}.
+    {consumed, Super#?Pl{curr = Stage}}.
 
 
 %% --------------------------------------------------------------------
@@ -112,55 +129,78 @@ consumed(Stage, #?Pl{nexts = []} = Pipe) ->
 %% Normally used by stages consuming messages to filter the one
 %% for them and ignore the others.
 
-ignore(Data, Stage, #?Pl{prevs = []} = Pipe) ->
+-spec ignore(Super::super(), Stage::twerl_stage(),
+             Data::twerl_stage_data()) ->
+          {ignore, twerl_stage_data(), super()}.
+
+ignore(#?Pl{prevs = []} = Super, Stage, Data) ->
     % Producer ignore the data, normally used with messages
-    {ignore, Data, Pipe#?Pl{curr = Stage}}.
+    {ignore, Data, Super#?Pl{curr = Stage}}.
 
 
 %% --------------------------------------------------------------------
 %% @doc Informs that more data is needed to continue.
 
-need_more(Query, Stage, #?Pl{prevs = [], target = undefined} = Pipe) ->
+-spec need_more(Super::super(), Stage::twerl_stage(),
+                Query::twerl_stage_query()) ->
+          {data, twerl_stage_data(), twerl_stage_format(), super()}
+        | {consumed, super()}
+        | {more, twerl_stage_query(), twerl_stage_format(), super()}
+        | {eos, super()}.
+
+need_more(#?Pl{prevs = [], target = undefined} = Super, Stage, Query) ->
     % No more upstream stages, really need more
-    #?Pl{prev_fmts = [Fmt]} = Pipe,
-    {more, Query, Fmt, Pipe#?Pl{curr = Stage}};
-need_more(_Query, _Stage, #?Pl{prevs = []}) ->
+    #?Pl{prev_fmts = [Fmt]} = Super,
+    {more, Query, Fmt, Super#?Pl{curr = Stage}};
+need_more(#?Pl{prevs = []}, _Stage, _Query) ->
     % A stage is pulling data for itself, and there is no producer stage
     erlang:error(no_producer);
-need_more(Query, Stage, Pipe) ->
+need_more(Super, Stage, Query) ->
     % Go back to the previous downstream stage and continue
     #?Pl{prev_fmts = [Fmt |PFmts], next_fmts = NFmts,
-         prevs = [Prev |Prevs], nexts = Nexts} = Pipe,
-    NewPipe = Pipe#?Pl{prev_fmts = PFmts, next_fmts = [Fmt |NFmts],
-                       prevs = Prevs, curr = Prev, nexts = [Stage |Nexts]},
-    call_continue_(NewPipe, Query).
+         prevs = [Prev |Prevs], nexts = Nexts} = Super,
+    NewSuper = Super#?Pl{prev_fmts = PFmts, next_fmts = [Fmt |NFmts],
+                         prevs = Prevs, curr = Prev, nexts = [Stage |Nexts]},
+    call_continue_(NewSuper, Query).
 
 
 %% --------------------------------------------------------------------
 %% @doc Pulls some data from upstream using specified query.
 
-pull(_Query, _Stage, #?Pl{prevs = []}) ->
+-spec pull(Super::super(), Stage::twerl_stage(),
+           Query::twerl_stage_query()) ->
+          {data, twerl_stage_data(), twerl_stage_format(), super()}
+        | {consumed, super()}
+        | {more, twerl_stage_query(), twerl_stage_format(), super()}
+        | {eos, super()}.
+
+pull(#?Pl{prevs = []}, _Stage, _Query) ->
     % A stage is pulling data for itself, and there is no producer stage
     erlang:error(no_producer);
-pull(Query, Stage, Pipe) ->
+pull(Super, Stage, Query) ->
     % A stage is pulling data for itself, set it as target and continue
     #?Pl{prev_fmts = [Fmt |PFmts], next_fmts = NFmts,
-         prevs = [Prev |Prevs], nexts = Nexts} = Pipe,
-    NewPipe = Pipe#?Pl{target = Stage,
-                       prev_fmts = PFmts, next_fmts = [Fmt |NFmts],
-                       prevs = Prevs, curr = Prev, nexts = [Stage |Nexts]},
-    call_continue_(NewPipe, Query).
+         prevs = [Prev |Prevs], nexts = Nexts} = Super,
+    NewSuper = Super#?Pl{target = Stage,
+                         prev_fmts = PFmts, next_fmts = [Fmt |NFmts],
+                         prevs = Prevs, curr = Prev, nexts = [Stage |Nexts]},
+    call_continue_(NewSuper, Query).
 
 
 %% --------------------------------------------------------------------
 %% @doc Negotiates upstream format.
 
-negotiate_upstream(Formats, Stage, Pipe) ->
+-spec negotiate_upstream(Super::super(), Stage::twerl_stage(),
+                         Formats::twerl_stage_formats()) ->
+          {ok, twerl_stage_format(), twerl_stage(), super()}
+        | {error, not_negotiated}.
+
+negotiate_upstream(Super, Stage, Formats) ->
     FmtLst = as_list_(Formats),
-    case renegotiate_upstream_(Pipe#?Pl{curr = Stage}, FmtLst) of
-        {ok, NewPipe} ->
-            #?Pl{prev_fmts = [NewFmt |_], curr = NewStage} = NewPipe,
-            {ok, NewFmt, NewStage, NewPipe};
+    case renegotiate_upstream_(Super#?Pl{curr = Stage}, FmtLst) of
+        {ok, NewSuper} ->
+            #?Pl{prev_fmts = [NewFmt |_], curr = NewStage} = NewSuper,
+            {ok, NewFmt, NewStage, NewSuper};
         {error, not_negotiated} ->
             {error, not_negotiated}
     end.
@@ -169,12 +209,17 @@ negotiate_upstream(Formats, Stage, Pipe) ->
 %% --------------------------------------------------------------------
 %% @doc Negotiates downstream format.
 
-negotiate_downstream(Formats, Stage, Pipe) ->
+-spec negotiate_downstream(Super::super(), Stage::twerl_stage(),
+                           Formats::twerl_stage_formats()) ->
+          {ok, twerl_stage_format(), twerl_stage(), super()}
+        | {error, not_negotiated}.
+
+negotiate_downstream(Super, Stage, Formats) ->
     FmtLst = as_list_(Formats),
-    case renegotiate_downstream_(Pipe#?Pl{curr = Stage}, FmtLst) of
-        {ok, NewPipe} ->
-            #?Pl{next_fmts = [NewFmt |_], curr = NewStage} = NewPipe,
-            {ok, NewFmt, NewStage, NewPipe};
+    case renegotiate_downstream_(Super#?Pl{curr = Stage}, FmtLst) of
+        {ok, NewSuper} ->
+            #?Pl{next_fmts = [NewFmt |_], curr = NewStage} = NewSuper,
+            {ok, NewFmt, NewStage, NewSuper};
         {error, not_negotiated} ->
             {error, not_negotiated}
     end.
@@ -183,8 +228,11 @@ negotiate_downstream(Formats, Stage, Pipe) ->
 %% --------------------------------------------------------------------
 %% @doc Informs the stage finished processing data.
 
-finished(Stage, Pipe) ->
-    {eos, Pipe#?Pl{curr = Stage}}.
+-spec finished(Super::super(), Stage::twerl_stage()) ->
+          {eos, super()}.
+
+finished(Super, Stage) ->
+    {eos, Super#?Pl{curr = Stage}}.
 
 
 %% --------------------------------------------------------------------
@@ -192,7 +240,7 @@ finished(Stage, Pipe) ->
 
 -spec failed(any(), any(), any()) -> no_return().
 
-failed(Reason, Stage, _Pipe) ->
+failed(_Super, Stage, Reason) ->
     erlang:error({stage_error, Reason, Stage}).
 
 
@@ -205,15 +253,15 @@ as_list_(O) -> [O].
 
 renegotiate_upstream_(#?Pl{prevs = []}, _NewFmts) ->
     {error, not_negotiated};
-renegotiate_upstream_(Pipe, NewFmts) ->
-    #?Pl{input = InFmt, prevs = Prevs} = Pipe,
+renegotiate_upstream_(Super, NewFmts) ->
+    #?Pl{input = InFmt, prevs = Prevs} = Super,
     erlog:log("Renegotiating formats of ~w upstream stages from ~w to ~w",
               [length(Prevs), NewFmts, InFmt]),
-    case twerl_pipeline:negotiate_stages_(Pipe, [InFmt], NewFmts, Prevs) of
+    case twerl_pipeline:negotiate_stages_(Super, [InFmt], NewFmts, Prevs) of
         {ok, InvFmts} ->
-            case twerl_pipeline:setup_stages_(Pipe, [], InvFmts, Prevs) of
+            case twerl_pipeline:setup_stages_(Super, [], InvFmts, Prevs) of
                 {ok, NewStages} ->
-                    {ok, Pipe#?Pl{prev_fmts = InvFmts,
+                    {ok, Super#?Pl{prev_fmts = InvFmts,
                                   prevs = lists:reverse(NewStages)}};
                 Any -> Any
             end;
@@ -222,25 +270,25 @@ renegotiate_upstream_(Pipe, NewFmts) ->
 
 renegotiate_downstream_(#?Pl{nexts = []}, _NewFmts) ->
     {error, not_negotiated};
-renegotiate_downstream_(Pipe, NewFmts) ->
-    #?Pl{output = OutFmt, nexts = Nexts} = Pipe,
+renegotiate_downstream_(Super, NewFmts) ->
+    #?Pl{output = OutFmt, nexts = Nexts} = Super,
     erlog:log("Renegotiating formats of ~w downstream stages from ~w to ~w",
               [length(Nexts), NewFmts, OutFmt]),
     InvStages = lists:reverse(Nexts),
-    case twerl_pipeline:negotiate_stages_(Pipe, NewFmts, OutFmt, InvStages) of
+    case twerl_pipeline:negotiate_stages_(Super, NewFmts, OutFmt, InvStages) of
         {ok, InvFmts} ->
-            case twerl_pipeline:setup_stages_(Pipe, [], InvFmts, InvStages) of
+            case twerl_pipeline:setup_stages_(Super, [], InvFmts, InvStages) of
                 {ok, NewStages} ->
-                    {ok, Pipe#?Pl{next_fmts = lists:reverse(InvFmts),
+                    {ok, Super#?Pl{next_fmts = lists:reverse(InvFmts),
                                   nexts = NewStages}};
                 Any -> Any
             end;
         Any -> Any
     end.
 
-call_process_(#?Pl{curr = Stage} = Pipe, Data) ->
-    Stage:process(Data, Pipe).
+call_process_(#?Pl{curr = Stage} = Super, Data) ->
+    Stage:process(Data, Super).
 
-call_continue_(#?Pl{curr = Stage} = Pipe, Query) ->
-    Stage:continue(Query, Pipe).
+call_continue_(#?Pl{curr = Stage} = Super, Query) ->
+    Stage:continue(Query, Super).
 

@@ -338,9 +338,7 @@ mk_negotiation_success_checker(In, Out) ->
             CanIn = stage_formats:canonical(In),
             CanOut = stage_formats:canonical(Out),
             ?assertEqual({ok, CanIn}, twerl_pipeline:get_input(P)),
-            ?assertMatch(?PIPELINE_MATCH_INPUT(CanIn), P),
-            ?assertEqual({ok, CanOut}, twerl_pipeline:get_output(P)),
-            ?assertMatch(?PIPELINE_MATCH_OUTPUT(CanOut), P)
+            ?assertEqual({ok, CanOut}, twerl_pipeline:get_output(P))
     end.
 
 mk_negotiation_success_checker(Chain) ->
